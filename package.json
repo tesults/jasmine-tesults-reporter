@@ -1,6 +1,6 @@
 {
   "name": "jasmine-tesults-reporter",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Jasmine Tesults Reporter",
   "main": "jasmine-tesults-reporter.js",
   "scripts": {

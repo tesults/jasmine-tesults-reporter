@@ -216,7 +216,9 @@ const tesultsReporter = {
                     console.timeLog(response.warnings[i])
                 }
             }
-            done()
+            if (typeof done === 'function') {
+                done()
+            }
         });
     }
   };
