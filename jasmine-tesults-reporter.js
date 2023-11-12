@@ -6,6 +6,11 @@ let data = {
     target: 'token',
     results: {
         cases: []
+    },
+    metadata: {
+        integration_name: "jasmine-tesults-reporter",
+        integration_version: "1.1.0",
+        test_framework: "jasmine"
     }
 };
   
@@ -22,6 +27,31 @@ const buildDescKey = "tesults-build-desc";
 const buildResultKey = "tesults-build-result";
 const buildReasonKey = "tesults-build-reason";
   
+let supplementalData = {}
+let currentSpecId = undefined
+//const supplementalDataFile = "tesults-supplemental-data-file.json"
+
+const getSupplementalData = () => {
+    try {
+        //let dataString = fs.readFileSync(supplementalDataFile, {encoding: 'utf8'})
+        //return JSON.parse(dataString)
+        return supplementalData
+    } catch (err) {
+        console.log("tesults-reporter error getting supplemental data: " + err)
+        return {}
+    }
+}
+
+const setSupplementalData = (data) => {
+    try {
+        //let fileContents = JSON.stringify(data)
+        //fs.writeFileSync(supplementalDataFile, fileContents)
+        supplementalData = data
+    } catch (err) {
+        console.log("tesults-reporter error saving supplemental data: " + err)
+    }
+}
+
 const caseFiles = (suite, name) => {
     let files = [];
     if (args['tesults-files'] !== undefined) {
@@ -85,6 +115,7 @@ const tesultsReporter = {
             return;
         }
         startTimes[result.id.toString()] = Date.now();
+        currentSpecId = result.id.toString()
     },
   
     specDone: (result) => {
@@ -160,6 +191,56 @@ const tesultsReporter = {
         }
         testCase.start = startTimes[result.id.toString()];
         testCase.end = Date.now();
+
+        // Add supplemental data
+        try {
+            const key = result.id.toString()
+            const supplemental = getSupplementalData()
+            const data = supplemental[key]
+            if (data !== undefined) {
+            // files
+            if (data.files !== undefined) {
+                data.files = [...new Set(data.files)]
+
+                if (testCase.files === undefined) {
+                    testCase.files = data.files
+                } else {
+                    for (let f = 0; f < data.files.length; f++) {
+                        testCase.files.push(data.files[f])
+                    }
+                }
+            }
+            // desc
+            testCase.desc = data.desc
+            // steps
+            if (data.steps !== undefined) {
+                let cleaned_steps = []
+                for (let s = 0; s < data.steps.length; s++) {
+                    let step = data.steps[s]
+                    if (cleaned_steps.length > 0) {
+                        let last_step = cleaned_steps[cleaned_steps.length - 1]
+                        if (step.name === last_step.name && step.result === last_step.result) {
+                            // Do not add repeated step
+                        } else {
+                            cleaned_steps.push(step)
+                        }
+                    } else {
+                        cleaned_steps.push(step)
+                    }
+                }
+                testCase.steps = cleaned_steps
+            }
+            // custom
+            Object.keys(data).forEach((key) => {
+                if (key.startsWith("_")) {
+                    testCase[key] = data[key]
+                }
+            })
+            }
+        } catch (err) {
+            // Swallow supplement data error
+        }
+
         data.results.cases.push(testCase);
     },
   
@@ -224,3 +305,66 @@ const tesultsReporter = {
   };
 
   module.exports = tesultsReporter;
+
+  // Enhanced reporting functions
+
+  module.exports.file = (path) => {
+    let supplemental = getSupplementalData()
+    const key = currentSpecId
+    if (supplemental[key] === undefined) {
+        supplemental[key] = { files: [path]}
+    } else {
+        let data = supplemental[key]
+        if (data.files === undefined) {
+            data.files = [path]
+        } else {
+            data.files.push(path)
+        }
+        supplemental[key] = data
+    }
+    setSupplementalData(supplemental)
+  }
+  
+  module.exports.custom = (name, value) => {
+    let supplemental = getSupplementalData()
+    const key = currentSpecId
+    if (supplemental[key] === undefined) {
+        supplemental[key] = {}
+    }
+    supplemental[key]["_" + name] = value
+    setSupplementalData(supplemental)
+  }
+  
+  module.exports.description = (value) => {
+    let supplemental = getSupplementalData()
+    const key = currentSpecId
+    if (supplemental[key] === undefined) {
+        supplemental[key] = {}
+    }
+    supplemental[key]["desc"] = value
+    setSupplementalData(supplemental)
+  }
+  
+  module.exports.step =  (step) => {
+    if (step === undefined) {
+        return
+    }
+    if (step.description !== undefined) {
+        step.desc = step.description
+        delete step.description
+    }
+    let supplemental = getSupplementalData()
+    const key = currentSpecId
+    if (supplemental[key] === undefined) {
+        supplemental[key] = { steps: [step] }
+    } else {
+        if (supplemental[key]["steps"] === undefined) {
+            supplemental[key]["steps"] = [step]
+        } else {
+            let steps = supplemental[key]["steps"]
+            steps.push(step)
+            supplemental[key]["steps"] = steps
+        }
+    }
+    setSupplementalData(supplemental)
+  }
