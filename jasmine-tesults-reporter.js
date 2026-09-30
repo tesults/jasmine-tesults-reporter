@@ -1,18 +1,21 @@
 const fs = require('fs');
 const path = require('path');
 const tesults = require('tesults');
+const integrationVersion = require('./package.json').version;
 
-let data = {
+const createData = () => ({
     target: 'token',
     results: {
         cases: []
     },
     metadata: {
         integration_name: "jasmine-tesults-reporter",
-        integration_version: "1.1.0",
+        integration_version: integrationVersion,
         test_framework: "jasmine"
     }
-};
+});
+
+let data = createData();
   
 let startTimes = {};
 
@@ -20,6 +23,7 @@ let args = {};
 let disabled = false;
 
 const targetKey = "tesults-target";
+const outputFileKey = "tesults-output-file";
 const filesKey = "tesults-files";
 const configKey = "tesults-config";
 const buildNameKey = "tesults-build-name";
@@ -75,9 +79,19 @@ const caseFiles = (suite, name) => {
 
 const tesultsReporter = {
     jasmineStarted: (suiteInfo) => {
+        data = createData();
+        startTimes = {};
+        args = {};
+        disabled = false;
+        supplementalData = {};
+        currentSpecId = undefined;
+
         process.argv.forEach((val, index) => {
             if (val.indexOf(targetKey) === 0) {
                 args[targetKey] = val.substr(targetKey.length + 1);
+            }
+            if (val.indexOf(outputFileKey) === 0) {
+                args[outputFileKey] = val.substr(outputFileKey.length + 1);
             }
             if (val.indexOf(filesKey) === 0) {
                 args[filesKey] = val.substr(filesKey.length + 1);
@@ -99,7 +113,14 @@ const tesultsReporter = {
             }
         });
     
-        if (args[targetKey] === undefined) {
+        if (
+            process.env.TESULTS_OUTPUT_FILE !== undefined &&
+            process.env.TESULTS_OUTPUT_FILE !== ""
+        ) {
+            args[outputFileKey] = process.env.TESULTS_OUTPUT_FILE;
+        }
+
+        if (args[targetKey] === undefined && args[outputFileKey] === undefined) {
             console.log(targetKey + " not provided. Tesults disabled.");
             disabled = true;
             return;
@@ -250,6 +271,9 @@ const tesultsReporter = {
   
     jasmineDone: (result, done) => {
         if (disabled === true) {
+            if (typeof done === 'function') {
+                done()
+            }
             return;
         }
       
@@ -281,26 +305,50 @@ const tesultsReporter = {
             data.results.cases.push(buildCase);
         }
     
-        // Tesults upload
-        data.target = args[targetKey];
-        console.log('Tesults results upload...');
-        tesults.results(data, function (err, response) {
-            if (err) {
-                console.log('Tesults library error, failed to upload.');
-            } else {
-                console.log('Success: ' + response.success);
-                console.log('Message: ' + response.message);
-                console.log('Warnings: ' + response.warnings.length);
-                console.log('Errors: ' + response.errors.length);
-
-                for(let i = 0; i < response.warnings.length; i++) {
-                    console.timeLog(response.warnings[i])
-                }
+        let outputError;
+        if (args[outputFileKey] !== undefined) {
+            try {
+                const outputData = { ...data, target: "" };
+                fs.mkdirSync(path.dirname(args[outputFileKey]), { recursive: true });
+                fs.writeFileSync(args[outputFileKey], JSON.stringify(outputData, null, 2));
+                console.log('Tesults results written to ' + args[outputFileKey]);
+            } catch (err) {
+                outputError = err;
+                console.log('Tesults error, failed to write results file.');
             }
+        }
+
+        const finish = () => {
             if (typeof done === 'function') {
                 done()
             }
-        });
+            if (outputError !== undefined) {
+                throw outputError;
+            }
+        };
+
+        if (args[targetKey] !== undefined) {
+            // Tesults upload
+            data.target = args[targetKey];
+            console.log('Tesults results upload...');
+            tesults.results(data, function (err, response) {
+                if (err) {
+                    console.log('Tesults library error, failed to upload.');
+                } else {
+                    console.log('Success: ' + response.success);
+                    console.log('Message: ' + response.message);
+                    console.log('Warnings: ' + response.warnings.length);
+                    console.log('Errors: ' + response.errors.length);
+
+                    for(let i = 0; i < response.warnings.length; i++) {
+                        console.timeLog(response.warnings[i])
+                    }
+                }
+                finish();
+            });
+        } else {
+            finish();
+        }
     }
   };
 
